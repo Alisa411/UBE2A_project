@@ -8,8 +8,10 @@ Nascimento syndrome is a rare form of X-linked intellectual disability. First de
 - code
 - README.md
 
-### How to install
+## How to install
 ```
 git clone git@github.com:Alisa411/UBE2A_project.git
 cd UBE2A_project
 ```
+
+## Copyright
