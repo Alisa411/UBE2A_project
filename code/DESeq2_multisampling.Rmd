@@ -1,0 +1,437 @@
+---
+title: "multisampling_npc"
+author: "Alisa Fedorenko"
+date: "2024-05-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+require(AnnotationHub)
+require(ensembldb)
+require(dplyr)
+require(stringr)
+require(tximport)
+require(ggplot2)
+require(tibble)
+require(DESeq2)
+require(pheatmap)
+require(EnhancedVolcano)
+require(clusterProfiler)
+require(org.Hs.eg.db)
+require(forcats)
+require(pathview)
+require(DEGreport)
+require(ggsci)
+require(openxlsx)
+```
+
+```{r}
+#setwd("./path/to/the/folder")
+```
+
+Provide all the data of salmon output in 'salmon_output' folder. To make an order in the directory create 'data' folder for all output tables and 'plots' folder for all output plots.
+
+```{r}
+dir.create("./data")
+dir.create("./plots")
+```
+
+## STEP1. Annotation.
+
+```{r}
+# Connect to AnnotationHub:
+ah <- AnnotationHub()
+
+# Return the Ensembl EnsDb information for Homo Sapiens:
+human_ens <- query(ah, c("Homo Sapiens", "EnsDb"))
+human_ens
+
+# Extract the latest Ensembl release using the AnnotationHub ID to subset the object
+human_ens <- human_ens[["AH109606"]]
+
+# Now we can use functions from ensembldb package to extract the information at the gene, transcript, or exon levels. We are interested in the gene-level annotations, so we can extract that information as follows:
+
+genedb <- genes(human_ens, return.type = "data.frame")
+
+# Look at the first 3 rows:
+head(genedb, 3)
+
+#Select columns “gene_id” and “symbol”:
+genedb2 <- dplyr::select(genedb, gene_id, symbol)
+
+# Since we need to convert transcript IDs to gene IDs, we also should extract the information at the transcript level.
+txdb <- transcripts(human_ens, return.type = "data.frame")
+head(txdb)
+
+# Select columns “tx_id” and “gene_id” from txdb and save it to txdb2 object as mentioned above.
+# Check the first 5 rows of the table.
+txdb2 <- dplyr::select(txdb, tx_id, gene_id)
+head(txdb2, 5)
+
+# Use dplyr R package to join transcripts, genes ID and symbols into one table: Transcript ID must be first column!
+tx2gene <- right_join(txdb2, genedb2, by='gene_id')
+head(tx2gene)
+
+# The final table must have 3 columns. Save the annotation table:
+write.table(tx2gene, "./data/annotation_human.csv", sep=';', quote=F, row.names=F)
+```
+
+## STEP2. Tximport.
+
+```{r}
+# List all directories containing data:
+samples <- list.files(path = "./salmon_output/", full.names = T) # change the path to the actual location of SalmonOutput folder
+samples
+
+# Obtain a vector of all filenames including the path:
+files <- file.path(samples, "quant.sf")
+files
+
+# Name elements of files object:
+names(files) <- str_replace(samples, "./salmon_output/", "")
+files
+
+# Run tximport (important arguments see below):
+# ignoreTxVersion = split the tx id on the '.' character to remove
+# ignoreAfterBar = to split the tx id on the '|' character
+txi <- tximport(files, 
+                type="salmon", 
+                tx2gene=tx2gene[,c("tx_id", "gene_id")],
+                countsFromAbundance="lengthScaledTPM",
+                ignoreAfterBar = TRUE, ignoreTxVersion = TRUE) 
+
+# View attributes of txi
+attributes(txi)
+
+# Write the counts to an object:
+data <- data.frame(round(txi$counts))
+
+# Save the data as a table:
+write.table(data, "./data/raw_data_multisampling.csv", sep=';', quote=F, row.names=F)
+
+# Create a metadata:
+genotype <- factor(c(rep("knockout", 3), rep("overexpression",3), 
+                     rep("patient", 3), rep("control", 3)))
+meta <- data.frame(genotype, row.names = colnames(data))
+meta
+```
+
+## STEP3. Normalization
+
+```{r}
+# Create DESeq2Dataset (DDS) object:
+dds <- DESeqDataSetFromMatrix(countData = round(data), colData = meta, design = ~ genotype)
+dds
+
+#  Perform normalization:
+dds <- estimateSizeFactors(dds)
+sizeFactors(dds)
+
+# Take a look at the total number of reads for each sample:
+colSums(counts(dds))
+
+#  Now, to retrieve the normalized counts matrix from dds, use the counts() function and add the argument normalized=TRUE.
+normalized_counts <- counts(dds, normalized=TRUE)
+write.table(normalized_counts, 
+            file="./data/normalized_counts.txt", #change the path to your working directory
+            sep="\t", quote=F, col.names=NA)
+```
+
+## STEP4. Quality Control.
+
+```{r}
+# Perform rlog-transformation:
+rld <- rlog(dds, blind=TRUE)
+
+# Create function to plot PCA:
+
+plotPCA.custom <- function (object, intgroup = "condition", ntop = 500, returnData = FALSE)
+{
+  font.size <- 15
+  rv <- rowVars(assay(object))
+  r <- assay(object)
+  select <- order(rv, decreasing = TRUE)[seq_len(min(ntop, length(rv)))]
+  pca <- prcomp(t(assay(object)[select, ]))
+  percentVar <- pca$sdev^2/sum(pca$sdev^2)
+  
+  intgroup.df <- as.data.frame(colData(object)[, intgroup, drop = FALSE])
+  group <- if (length(intgroup) > 1) {
+    factor(apply(intgroup.df, 1, paste, collapse = " : "))
+  }
+  else {
+    colData(object)[[intgroup]]
+  }
+  d1 <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2], intgroup.df, name = colnames(object))
+  
+  p1 <- ggplot(data = d1, aes_string(x = "PC1", y = "PC2")) + 
+    geom_point(aes_string(color = "genotype"), size = 3) + 
+    xlab(paste0("PC1: ", round(percentVar[1] * 100), "% variance")) + 
+    ylab(paste0("PC2: ", round(percentVar[2] * 100), "% variance")) +
+    theme_bw()
+  
+  return (p1)
+}
+# Plot PCA graph:
+plotPCA.custom(rld, intgroup="genotype")
+
+ggsave('./plots/PCAplot_multisampling.pdf', height = 7, width = 7)
+
+# Correlation Heatmap
+
+#Extract the rlog matrix from the object:
+rld_mat <- assay(rld)
+
+# Compute pairwise correlation values
+rld_cor <- cor(rld_mat) 
+
+# Plot the correlation values as a heatmap:
+pheatmap(rld_cor, annotation = meta)
+pheatmap(rld_cor, annotation = meta, filename = './plots/heatmap.pdf', width = 7, height = 5)
+```
+
+## STEP5. Likelihood ratio test (LRT).
+
+To read more follow the link: <https://hbctraining.github.io/DGE_workshop_salmon/lessons/08_DGE_LRT.html>
+
+```{r}
+# The full model was specified previously with the `design = ~ sampletype`:
+# dds <- DESeqDataSetFromTximport(txi, colData = meta, ~ sampletype)
+
+# Likelihood ratio test
+dds_lrt <- DESeq(dds, test="LRT", reduced = ~ 1)
+
+# Extract results
+res_LRT <- results(dds_lrt)
+
+# Create a tibble for LRT results
+res_LRT_tb <- res_LRT %>%
+  data.frame() %>%
+  rownames_to_column(var="gene") %>% 
+  as_tibble()
+
+padj.cutoff <- 0.05
+
+# Subset to return genes with padj < 0.05
+sigLRT_genes <- res_LRT_tb %>% 
+  filter(padj < padj.cutoff)
+
+# Get number of significant genes
+num <- nrow(sigLRT_genes)
+```
+This step is time consuming! It takes aproximately 30 minutes.
+```{r}
+# Subset results for faster cluster finding (for classroom demo purposes)
+clustering_sig_genes <- sigLRT_genes %>%
+  arrange(padj) %>%
+  head(n=num)
+
+# Obtain rlog values for those significant genes
+cluster_rlog <- rld_mat[clustering_sig_genes$gene, ]
+
+# Use the `degPatterns` function from the 'DEGreport' package to show gene clusters across sample groups
+clusters <- degPatterns(cluster_rlog, metadata = meta, time = "genotype", col=NULL)
+
+# Function for plotting the results of DE gene expression pattern 
+# https://lpantano.github.io/DEGreport/reference/degPlotCluster.html
+
+degPlotCluster(clusters[["normalized"]], time = "genotype", col=NULL, 
+               lines = FALSE,
+               points = FALSE,
+               smooth = TRUE,
+               ) + 
+  scale_y_continuous(limits = c(-2, 2)) +  # Setting y-axis limits from -2 to 2
+  theme_bw() +  # Using minimal theme
+  theme(panel.grid = element_line(color = "lightgray")) + 
+  aes(col = genotype, fill = genotype) +
+  geom_boxplot(alpha = 0.5) +
+  scale_color_locuszoom(palette = c("default"), alpha = 1, discrete_scale) +
+  scale_fill_locuszoom(palette = c("default"), alpha = 0.5, discrete_scale) + 
+  stat_smooth(aes(x = genotype, y = value, group = genotype), 
+              se = FALSE, method = "lm", formula = y~poly(x, splan))
+  
+
+base <- degPlotCluster(clusters[["normalized"]], time = "genotype", col=NULL, 
+               lines = FALSE,
+               points = FALSE,
+               smooth = TRUE,
+) + 
+  scale_y_continuous(limits = c(-2, 2)) +
+  theme_bw() +
+  theme(panel.grid = element_line(color = "lightgray")) + 
+  aes(col = genotype, fill = genotype) +
+  geom_boxplot(alpha = 0.5) +
+  scale_color_locuszoom(palette = c("default"), alpha = 1, discrete_scale) +
+  scale_fill_locuszoom(palette = c("default"), alpha = 0.5, discrete_scale)
+
+#base + facet_wrap(~clusters, nrow = 4)
+
+# What type of data structure is the `clusters` output?
+class(clusters)
+
+# Let's see what is stored in the `df` component
+head(clusters$df)
+
+# Extract the Group 1 genes
+cluster_groups <- clusters$df
+
+# First, create a column with gene_ids:
+cluster_groups$gene_id <- rownames(cluster_groups)
+
+#Join tables:
+cluster_groups <- left_join(cluster_groups, genedb2, by='gene_id')
+write.table(cluster_groups, "./data/cluster_groups_of_DEGs.csv", sep=';', quote=F, row.names=F)
+
+#разделяем 
+clustered_groups <- cluster_groups %>% group_split(cluster)
+```
+
+## STEP6. Heatmap Across All the Analyzed Samples.
+```{r}
+normalized_counts <- normalized_counts %>%
+  data.frame() %>%
+  rownames_to_column(var="gene") %>%
+  left_join(genedb2, by=c('gene'='gene_id')) 
+
+norm_sig <- normalized_counts %>%
+  filter(gene %in% sigLRT_genes$gene)
+
+sample_group <- data.frame(sample = rep(c("UBE2A-KO", "UBE2A-WT", "Patient-del-UBE2A", "UBE2A-OE"), c(3, 3, 3, 3)))
+row.names(sample_group) <- colnames(normalized_counts[2:13])
+sample_group
+
+annot_cols <- c("UBE2A-WT"='#D43F3AFF', "UBE2A-KO"='#EEA236FF', "Patient-del-UBE2A"='#46B8DAFF', "UBE2A-OE"='#5CB85CFF')
+annot_cols <- list(sample = annot_cols)
+
+pdf("./plots/pheatmap.pdf", width = 7, height = 7)
+pheatmap(norm_sig[2:13],
+         cluster_rows = T,
+         show_rownames = F,
+         show_colnames = F,
+         annotation = meta,
+         annotation_col = sample_group,
+         border_color = black,
+         cutree_cols = 4,
+         fontsize = 10,
+         scale = "row",
+         fontsize_row = 10,
+         height = 10,
+         annotation_colors = annot_cols)
+dev.off()
+```
+This step is optional. It provides a heatmap with gene of your interest.
+To get to know, how to make your individual heatmap, read more https://www.reneshbedre.com/blog/heatmap-with-pheatmap-package-r.html
+```{r}
+#provide the table or list of genes of your interest
+gene_list_table <- read.csv("./npc_gene_list.csv", sep = ";", header = TRUE)
+gene_list <- trimws(gene_list_table$ID)
+
+normilized_gene_list <-  normalized_counts %>%
+  filter(gene %in% gene_list) #filtration of GOI 
+
+normilized_gene_list <- select(normilized_gene_list, -1) %>% 
+  column_to_rownames(var = "symbol")  
+
+normilized_gene_list <- normilized_gene_list[order(row.names(normilized_gene_list)), ]
+
+#specify the function annotation for these genes
+gene_function <- data.frame(Function = rep(c("RhoGEF","CDK5", "Ephrin-eph signaling", "Myosin II", 
+                                              "PAK", "Semarphorins"), c(3, 2, 6, 7, 2, 6)))
+row.names(gene_function) <- rownames(normilized_gene_list)
+
+pdf("./plots/pheatmap_GOI.pdf", width = 7, height = 7) 
+pheatmap(normilized_gene_list, 
+         scale = "row", 
+         colnames = FALSE, 
+         show_colnames = F,  
+         cluster_rows = F, 
+         annotation_col = sample_group, 
+         annotation_row = gene_function,
+         annotation_colors = annot_cols)
+dev.off()
+```
+
+## STEP7. Functional Analysis.
+
+### 1. Gene Ontology analysis
+
+```{r}
+for (i in seq_along(clustered_groups)) {
+  group <- clustered_groups[[i]]
+
+  ego_BP <- enrichGO(gene = group$genes,
+                     universe = sigLRT_genes$gene, 
+                     keyType = "ENSEMBL",
+                     OrgDb = org.Hs.eg.db, 
+                     ont = "BP",
+                     pAdjustMethod = "BH", 
+                     pvalueCutoff = 0.05)
+  
+  d.ego_BP <- data.frame(ego_BP)
+  write.xlsx(d.ego_BP, paste0("./data/GO_BP_", i, "th_gene_cluster.xlsx"))
+  
+  ego_MF <- enrichGO(gene = group$genes,
+                     universe = sigLRT_genes$gene, 
+                     keyType = "ENSEMBL",
+                     OrgDb = org.Hs.eg.db, 
+                     ont = "MF",
+                     pAdjustMethod = "BH", 
+                     pvalueCutoff = 0.05)
+  
+  d.ego_MF <- data.frame(ego_MF)
+  write.xlsx(d.ego_MF, paste0("./data/GO_MF_", i, "th_gene_cluster.xlsx"))
+  
+  
+  ego_CC <- enrichGO(gene = group$genes,
+                     universe = sigLRT_genes$gene, 
+                     keyType = "ENSEMBL",
+                     OrgDb = org.Hs.eg.db, 
+                     ont = "CC",
+                     pAdjustMethod = "BH", 
+                     pvalueCutoff = 0.05)
+  
+  d.ego_CC <- data.frame(ego_CC)
+  write.xlsx(d.ego_CC, paste0("./data/GO_CC_", i, "th_gene_cluster.xlsx"))
+  
+}
+```
+
+### 2. KEGG patway and interactome analysis
+
+```{r}
+entrez_up = bitr(cluster_groups$genes, 
+                 fromType="ENSEMBL", 
+                 toType="ENTREZID",
+                 OrgDb="org.Hs.eg.db")
+
+cluster_entrez <- left_join(cluster_groups, entrez_up, by=c('genes'='ENSEMBL'))
+cluster_list <- split(cluster_entrez$ENTREZID, cluster_entrez$cluster)
+str(cluster_list)
+
+ck <- compareCluster(geneCluster = cluster_list, fun = enrichKEGG)
+ck <- setReadable(ck, OrgDb = org.Hs.eg.db, keyType="ENTREZID")
+head(ck) 
+
+width_mm <- 450
+height_mm <- 820
+
+width_inches <- width_mm / 25.4
+height_inches <- height_mm / 25.4
+
+pdf("./plots/cnetplot_output.pdf", width = width_inches, height = height_inches)
+
+cnetplot(ck, width = width_inches, height = height_inches)
+
+dev.off()
+
+options(enrichplot.colours = c("red","blue"))
+pdf("./plots/dotplot_output.pdf", width = 7, height = 8)
+dotplot(ck, showCategory = 5, font.size=8)
+dev.off()
+
+ck_df <- data.frame(ck)
+write.xlsx(ck_df, paste0("./data/KEGG_pathway_clusters.xlsx"))
+```
