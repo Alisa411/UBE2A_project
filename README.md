@@ -6,6 +6,9 @@ Nascimento syndrome is a rare form of X-linked intellectual disability. First de
 
 ## Project Structure
 - code
+    - salmon_script.sh
+    - DESeq2_pairwise_script.Rmd
+    - DESeq2_multisampling.Rmd
 - README.md
 
 ## How to install
@@ -14,4 +17,5 @@ git clone git@github.com:Alisa411/UBE2A_project.git
 cd UBE2A_project
 ```
 
-## Copyright
+## Contributors
+Smirnov D. Sekretova E., Khomyakova E., Surdina A., Smirnov I., Lebedev I., Lagarkova M., Bogomazova A.
