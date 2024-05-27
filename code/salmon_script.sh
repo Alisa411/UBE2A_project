@@ -8,36 +8,36 @@
 while read SAMPLE; do
         echo "Running sample ${SAMPLE}"
 
-        FASTQ1=${SAMPLE}_R1.fastq.gz                                      # fastq names
-        #FASTQ2=${SAMPLE}_R2.fastq.gz
+        FASTQ1=${SAMPLE}.R1.fastq.gz                                    # fastq names
+        FASTQ2=${SAMPLE}.R2.fastq.gz
 
-        FASTQ1_PATH="/path/to/file/${FASTQ1}"                             # <- edit the path to your fastqs
-        #FASTQ2_PATH="/path/to/file/${FASTQ2}"
+        FASTQ1_PATH="/path/to/your/fastq/${FASTQ1}"                    # <- edit the path to your fastqs
+        FASTQ2_PATH="/path/to/your/fastq/${FASTQ2}"
 
         #######################
         ##  PART1 Run fastp  ##
         #######################
 
-        FASTQ1_FILT=${SAMPLE}_R1.filt.fastq.gz                            # fastp output
-        FASTQ2_FILT=${SAMPLE}_R2.filt.fastq.gz
+        FASTQ1_FILT=${SAMPLE}.R1.filt.fastq.gz                          # fastp output
+        FASTQ2_FILT=${SAMPLE}.R2.filt.fastq.gz
 
-        FASTQ1_FILT_PATH="/path/to/file/${FASTQ1_FILT}"                   # <- edit the path to your filtered fastqs
-        FASTQ2_FILT_PATH="/path/to/file/${FASTQ2_FILT}"
+        FASTQ1_FILT_PATH="/path/to/your/filtered/fastq/${FASTQ1_FILT}" # <- edit the path to your filtered fastqs
+        FASTQ2_FILT_PATH="/path/to/your/filtered/fastq/${FASTQ2_FILT}"
 
-        #just because fastp has been already run (if not - unmute this command)
-        #fastp -i ${FASTQ1_PATH} -I ${FASTQ2_PATH} -o ${FASTQ1_FILT_PATH} -O ${FASTQ2_FILT_PATH} -h ${SAMPLE}.fastp.html -j ${SAMPLE}.fastp.json
-
+        fastp -i ${FASTQ1_PATH} -I ${FASTQ2_PATH} -o ${FASTQ1_FILT_PATH} -O ${FASTQ2_FILT_PATH} -h ${SAMPLE}.fastp.html -j ${SAMPLE}.fastp.json
+        
         #####################################
         ##  PART2 Map samples with Salmon  ##
         #####################################
 
-        SALMON_TRANSCRIPTOME_INDEX_DIR="/path/to/index/"                  # <- add directory with transcriptome index
-        SALMON_OUT_DIR="/path/to/salmon_output/${SAMPLE}"                 # <- add directory to store salmon output
+        SALMON_TRANSCRIPTOME_INDEX_DIR="/path/to/your/index/dir" # <- add directory with transcriptome index
+        SALMON_OUT_DIR="/path/to/your/output/dir/${SAMPLE}"                 # <- add directory to store salmon output
 
         salmon quant -i ${SALMON_TRANSCRIPTOME_INDEX_DIR} \
-                -l ISF \
-                -1 ${FASTQ1_PATH} \
-                -p 8 \
+                -l A \
+                -1 ${FASTQ1_FILT_PATH} \
+                -2 ${FASTQ2_FILT_PATH} \
+                -p 2 \
                 -o ${SALMON_OUT_DIR} \
                 --useVBOpt \
                 --seqBias \
