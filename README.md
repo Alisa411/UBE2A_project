@@ -20,4 +20,12 @@ cd UBE2A_project
 ```
 
 ## Contributors
-Smirnov D. Sekretova E., Khomyakova E., Surdina A., Smirnov I., Lebedev I., Lagarkova M., Bogomazova A.
+Fedorenko A.<sup>1,2,4</sup>, Smirnov D.<sup>4</sup>, Sekretova E.<sup>2</sup>, Khomyakova E.<sup>2</sup>, Surdina A.<sup>2</sup>, Smirnov I.<sup>2</sup>, Lebedev I.<sup>3</sup>, Lagarkova M.<sup>2</sup>, Bogomazova A. <sup>2,3</sup>
+
+1. Bioinformatics Institute, Kantemirovskaya st. 2A, 197342, St. Petersburg, Russia
+2. Lopukhin Federal Research Clinical Center of Physical and Chemical Medicine,	Department of Cell Biology, Malaya Pirogovskaya, 1a, 119435, Moscow, Russia
+3. Tomsk National Research Medical Center, The Research Institute of Medical Genetics, Department of Ontogenetics, Nab. Ushaiki 10, 634050, Tomsk, Russia
+4. Skolkovo Institute of Science and Technology, Bolshoy Boulevard 30p.1, 121205, Moscow, Russia
+
+## Contacts
+If you have any questions do not hesitate to contact me via email: afedorenko00@gmail.com
