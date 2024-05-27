@@ -1,5 +1,5 @@
 # Salmon_mapping.sh script does the following:
-# for each SAMPLE in 'samples2.txt':
+# for each SAMPLE in 'samples.txt':
 #    process a corresponding fastq files with fastp
 #    map the resulting file to the transcriptome using salmon quant
 
