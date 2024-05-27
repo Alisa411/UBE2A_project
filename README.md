@@ -9,6 +9,8 @@ Nascimento syndrome is a rare form of X-linked intellectual disability. First de
     - salmon_script.sh
     - DESeq2_pairwise_script.Rmd
     - DESeq2_multisampling.Rmd
+    - salmon_environment.yaml
+    - README.md
 - README.md
 
 ## How to install
